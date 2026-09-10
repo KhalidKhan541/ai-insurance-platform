@@ -1,0 +1,1158 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  UNDERWRITER
+  CLAIMS_ADJUSTER
+  AGENT
+  BROKER
+  CUSTOMER
+  READ_ONLY
+}
+
+enum PolicyStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+  RENEWED
+  UNDER_REVIEW
+}
+
+enum ClaimStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  INVESTIGATING
+  ADJUSTING
+  PENDING_APPROVAL
+  APPROVED
+  PARTIALLY_APPROVED
+  DENIED
+  PAID
+  CLOSED
+  REOPENED
+  APPEALED
+}
+
+enum ClaimType {
+  AUTO_ACCIDENT
+  PROPERTY_DAMAGE
+  HEALTH_MEDICAL
+  HEALTH_DENTAL
+  LIFE_DEATH
+  LIFE_DISABILITY
+  LIABILITY
+  MALPRACTICE
+  CYBER_BREACH
+  NATURAL_DISASTER
+  THEFT
+  FLOOD
+  FIRE
+  OTHER
+}
+
+enum FraudStatus {
+  NONE
+  SUSPECTED
+  UNDER_INVESTIGATION
+  CONFIRMED
+  CLEARED
+  DISMISSED
+}
+
+enum UnderwritingStatus {
+  DRAFT
+  PENDING
+  IN_REVIEW
+  APPROVED
+  DECLINED
+  REFERRED
+  CONDITIONS_APPLIED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  OVERDUE
+  CANCELLED
+}
+
+enum CommunicationType {
+  EMAIL
+  SMS
+  PHONE
+  IN_APP
+  MAIL
+  FAX
+}
+
+enum DocumentType {
+  POLICY_DOCUMENT
+  CLAIM_FORM
+  MEDICAL_RECORD
+  POLICE_REPORT
+  PHOTOGRAPH
+  INVOICE
+  RECEIPT
+  CONTRACT
+  CORRESPONDENCE
+  IDENTIFICATION
+  OTHER
+}
+
+enum RiskLevel {
+  VERY_LOW
+  LOW
+  MEDIUM
+  HIGH
+  VERY_HIGH
+  CRITICAL
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String
+  role          UserRole  @default(CUSTOMER)
+  emailVerified DateTime?
+  image         String?
+  phone         String?
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  customer            Customer?
+  agent               Agent?
+  underwriter         UnderwritingProfile?
+  claimsAdjusted      ClaimAdjuster[]
+  communicationsSent  Communication[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  reports             Report[]
+  dashboards          Dashboard[]
+  premiumsPaid        PremiumPayment[]
+  premiumSchedules    PremiumSchedule[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Policy {
+  id                String       @id @default(cuid())
+  policyNumber      String       @unique
+  policyTypeId      String
+  customerId        String
+  agentId           String?
+  insurerId         String
+  status            PolicyStatus @default(DRAFT)
+  effectiveDate     DateTime
+  expirationDate    DateTime
+  cancelledAt       DateTime?
+  cancellationReason String?
+  description       String?      @db.Text
+  terms             String?      @db.Text
+  totalPremium      Decimal      @db.Decimal(12, 2)
+  currency          String       @default("USD")
+  isAutoRenew       Boolean      @default(false)
+  metadata          Json?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  policyType        PolicyType          @relation(fields: [policyTypeId], references: [id])
+  customer          Customer            @relation(fields: [customerId], references: [id])
+  agent             Agent?              @relation(fields: [agentId], references: [id])
+  insurer           Insurer             @relation(fields: [insurerId], references: [id])
+  documents         PolicyDocument[]
+  renewals          PolicyRenewal[]
+  endorsements      PolicyEndorsement[]
+  cancellations     PolicyCancellation[]
+  claims            Claim[]
+  premiums          Premium[]
+  premiumSchedules  PremiumSchedule[]
+  coverages         Coverage[]
+  insuranceQuotes   InsuranceQuote[]
+  underwritingProfile UnderwritingProfile?
+
+  @@index([policyNumber])
+  @@index([customerId])
+  @@index([status])
+  @@index([insurerId])
+  @@map("policies")
+}
+
+model PolicyType {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  code        String  @unique
+  description String? @db.Text
+  category    String
+  isActive    Boolean @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  policies  Policy[]
+
+  @@map("policy_types")
+}
+
+model PolicyDocument {
+  id          String     @id @default(cuid())
+  policyId    String
+  documentType DocumentType
+  fileName    String
+  fileUrl     String
+  fileSize    Int?
+  mimeType    String?
+  uploadedById String
+  isVerified  Boolean    @default(false)
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+
+  policy Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+  @@map("policy_documents")
+}
+
+model PolicyRenewal {
+  id              String       @id @default(cuid())
+  policyId        String
+  renewalDate     DateTime
+  newExpiration   DateTime
+  newPremium      Decimal      @db.Decimal(12, 2)
+  status          String       @default("PENDING")
+  notes           String?      @db.Text
+  processedById   String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  policy Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+  @@map("policy_renewals")
+}
+
+model PolicyEndorsement {
+  id            String   @id @default(cuid())
+  policyId      String
+  endorsementNumber String
+  type          String
+  description   String?  @db.Text
+  effectiveDate DateTime
+  status        String   @default("DRAFT")
+  changes       Json
+  premiumImpact Decimal? @db.Decimal(12, 2)
+  approvedById  String?
+  approvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  policy Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+  @@map("policy_endorsements")
+}
+
+model PolicyCancellation {
+  id            String   @id @default(cuid())
+  policyId      String
+  reason        String   @db.Text
+  effectiveDate DateTime
+  refundAmount  Decimal? @db.Decimal(12, 2)
+  status        String   @default("PENDING")
+  processedById String?
+  processedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  policy Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+  @@map("policy_cancellations")
+}
+
+model Claim {
+  id              String      @id @default(cuid())
+  claimNumber     String      @unique
+  policyId        String
+  customerId      String
+  type            ClaimType
+  status          ClaimStatus @default(DRAFT)
+  fraudStatus     FraudStatus @default(NONE)
+  dateOfIncident  DateTime
+  dateReported    DateTime    @default(now())
+  description     String      @db.Text
+  estimatedAmount Decimal?    @db.Decimal(12, 2)
+  approvedAmount  Decimal?    @db.Decimal(12, 2)
+  paidAmount      Decimal?    @db.Decimal(12, 2)
+  deductible      Decimal?    @db.Decimal(12, 2)
+  currency        String      @default("USD")
+  location        String?
+  policeReportNumber String?
+  notes           String?     @db.Text
+  metadata        Json?
+  closedAt        DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  policy          Policy          @relation(fields: [policyId], references: [id])
+  customer        Customer        @relation(fields: [customerId], references: [id])
+  documents       ClaimDocument[]
+  adjusters       ClaimAdjuster[]
+  payments        ClaimPayment[]
+  claimNotes      ClaimNote[]
+  fraudAlerts     FraudAlert[]
+  thirdPartyClaims ThirdPartyClaim[]
+  legalCases      LegalCase[]
+
+  @@index([claimNumber])
+  @@index([policyId])
+  @@index([customerId])
+  @@index([status])
+  @@map("claims")
+}
+
+model ClaimDocument {
+  id           String     @id @default(cuid())
+  claimId      String
+  documentType DocumentType
+  fileName     String
+  fileUrl      String
+  fileSize     Int?
+  mimeType     String?
+  uploadedById String
+  isVerified   Boolean    @default(false)
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+  @@map("claim_documents")
+}
+
+model ClaimAdjuster {
+  id         String   @id @default(cuid())
+  claimId    String
+  userId     String
+  role       String   @default("ADJUSTER")
+  assignedAt DateTime @default(now())
+  notes      String?  @db.Text
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([claimId, userId])
+  @@map("claim_adjusters")
+}
+
+model ClaimPayment {
+  id            String      @id @default(cuid())
+  claimId       String
+  amount        Decimal     @db.Decimal(12, 2)
+  currency      String      @default("USD")
+  paymentStatus PaymentStatus @default(PENDING)
+  paymentMethod String?
+  transactionId String?
+  paidAt        DateTime?
+  notes         String?     @db.Text
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+  @@map("claim_payments")
+}
+
+model ClaimNote {
+  id        String   @id @default(cuid())
+  claimId   String
+  authorId  String
+  content   String   @db.Text
+  isInternal Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claim  Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  author User  @relation(fields: [authorId], references: [id])
+
+  @@index([claimId])
+  @@map("claim_notes")
+}
+
+model UnderwritingProfile {
+  id               String            @id @default(cuid())
+  policyId         String            @unique
+  underwriterId    String?
+  status           UnderwritingStatus @default(DRAFT)
+  riskScore        Decimal?          @db.Decimal(5, 2)
+  riskLevel        RiskLevel?
+  assessmentData   Json
+  notes            String?           @db.Text
+  reviewedAt       DateTime?
+  approvedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  policy       Policy        @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  underwriter  User?         @relation(fields: [underwriterId], references: [id])
+  riskAssessments RiskAssessment[]
+  riskFactors     RiskFactor[]
+
+  @@index([policyId])
+  @@index([underwriterId])
+  @@map("underwriting_profiles")
+}
+
+model RiskAssessment {
+  id                    String   @id @default(cuid())
+  underwritingProfileId String
+  modelVersion          String
+  score                 Decimal  @db.Decimal(5, 2)
+  confidence            Decimal? @db.Decimal(5, 4)
+  factors               Json
+  explanation           String?  @db.Text
+  recommendedAction     String?
+  createdAt             DateTime @default(now())
+
+  underwritingProfile UnderwritingProfile @relation(fields: [underwritingProfileId], references: [id], onDelete: Cascade)
+
+  @@index([underwritingProfileId])
+  @@map("risk_assessments")
+}
+
+model RiskFactor {
+  id                    String   @id @default(cuid())
+  underwritingProfileId String
+  category              String
+  name                  String
+  value                 Json
+  weight                Decimal? @db.Decimal(5, 4)
+  impact                Decimal? @db.Decimal(5, 4)
+  description           String?  @db.Text
+  createdAt             DateTime @default(now())
+
+  underwritingProfile UnderwritingProfile @relation(fields: [underwritingProfileId], references: [id], onDelete: Cascade)
+
+  @@index([underwritingProfileId])
+  @@map("risk_factors")
+}
+
+model FraudAlert {
+  id          String      @id @default(cuid())
+  claimId     String
+  ruleId      String?
+  status      FraudStatus @default(SUSPECTED)
+  severity    RiskLevel   @default(MEDIUM)
+  description String      @db.Text
+  evidence    Json?
+  aiScore     Decimal?    @db.Decimal(5, 4)
+  reviewedById String?
+  reviewedAt  DateTime?
+  notes       String?     @db.Text
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  claim       Claim              @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  rule        FraudRule?         @relation(fields: [ruleId], references: [id])
+  investigation FraudInvestigation?
+
+  @@index([claimId])
+  @@index([status])
+  @@map("fraud_alerts")
+}
+
+model FraudRule {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?  @db.Text
+  ruleType    String
+  conditions  Json
+  isActive    Boolean  @default(true)
+  priority    Int      @default(0)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  alerts FraudAlert[]
+
+  @@map("fraud_rules")
+}
+
+model FraudInvestigation {
+  id              String   @id @default(cuid())
+  fraudAlertId    String   @unique
+  investigatorId  String?
+  status          String   @default("OPEN")
+  findings        String?  @db.Text
+  evidence        Json?
+  resolution      String?  @db.Text
+  startedAt       DateTime @default(now())
+  closedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  fraudAlert FraudAlert @relation(fields: [fraudAlertId], references: [id], onDelete: Cascade)
+
+  @@map("fraud_investigations")
+}
+
+model Customer {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  customerNumber  String   @unique
+  dateOfBirth     DateTime?
+  gender          String?
+  address         String?  @db.Text
+  city            String?
+  state           String?
+  zipCode         String?
+  country         String   @default("US")
+  occupation      String?
+  annualIncome    Decimal? @db.Decimal(12, 2)
+  riskProfile     Json?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id])
+  policies           Policy[]
+  claims             Claim[]
+  documents          CustomerDocument[]
+  communications     CustomerCommunication[]
+  thirdPartyClaims   ThirdPartyClaim[]
+
+  @@index([customerNumber])
+  @@map("customers")
+}
+
+model CustomerDocument {
+  id           String     @id @default(cuid())
+  customerId   String
+  documentType DocumentType
+  fileName     String
+  fileUrl      String
+  fileSize     Int?
+  mimeType     String?
+  isVerified   Boolean    @default(false)
+  expiresAt    DateTime?
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_documents")
+}
+
+model CustomerCommunication {
+  id           String             @id @default(cuid())
+  customerId   String
+  type         CommunicationType
+  subject      String
+  content      String             @db.Text
+  direction    String             @default("OUTBOUND")
+  channel      String?
+  status       String             @default("SENT")
+  sentAt       DateTime           @default(now())
+  readAt       DateTime?
+  metadata     Json?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_communications")
+}
+
+model Agent {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  agentCode       String   @unique
+  licenseNumber   String?
+  licenseState    String?
+  licenseExpiry   DateTime?
+  agencyName      String?
+  commissionRate  Decimal? @db.Decimal(5, 4)
+  tier            String?
+  specialization  String?
+  isActive        Boolean  @default(true)
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user               User              @relation(fields: [userId], references: [id])
+  policies           Policy[]
+  performances       AgentPerformance[]
+  commissions        AgentCommission[]
+
+  @@index([agentCode])
+  @@map("agents")
+}
+
+model AgentPerformance {
+  id            String   @id @default(cuid())
+  agentId       String
+  period        DateTime
+  policiesSold  Int      @default(0)
+  claimsHandled Int      @default(0)
+  totalPremium  Decimal  @db.Decimal(12, 2) @default(0)
+  totalCommission Decimal @db.Decimal(12, 2) @default(0)
+  conversionRate Decimal? @db.Decimal(5, 4)
+  customerRating Decimal? @db.Decimal(3, 2)
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@map("agent_performances")
+}
+
+model AgentCommission {
+  id            String      @id @default(cuid())
+  agentId       String
+  policyId      String
+  amount        Decimal     @db.Decimal(12, 2)
+  rate          Decimal     @db.Decimal(5, 4)
+  status        PaymentStatus @default(PENDING)
+  paidAt        DateTime?
+  createdAt     DateTime    @default(now())
+
+  agent  Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  policy Policy @relation(fields: [policyId], references: [id])
+
+  @@index([agentId])
+  @@map("agent_commissions")
+}
+
+model InsuranceProduct {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String   @unique
+  description String?  @db.Text
+  category    String
+  isActive    Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  plans InsurancePlan[]
+
+  @@map("insurance_products")
+}
+
+model InsurancePlan {
+  id          String   @id @default(cuid())
+  productId   String
+  name        String
+  code        String
+  description String?  @db.Text
+  basePremium Decimal  @db.Decimal(12, 2)
+  currency    String   @default("USD")
+  isActive    Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product      InsuranceProduct  @relation(fields: [productId], references: [id])
+  quotes       InsuranceQuote[]
+  coverages    Coverage[]
+
+  @@unique([productId, code])
+  @@map("insurance_plans")
+}
+
+model InsuranceQuote {
+  id              String   @id @default(cuid())
+  quoteNumber     String   @unique
+  planId          String
+  customerId      String?
+  agentId         String?
+  status          String   @default("DRAFT")
+  validUntil      DateTime
+  totalPremium    Decimal  @db.Decimal(12, 2)
+  currency        String   @default("USD")
+  discountPercent Decimal? @db.Decimal(5, 2)
+  discountAmount  Decimal? @db.Decimal(12, 2)
+  taxAmount       Decimal? @db.Decimal(12, 2)
+  finalAmount     Decimal? @db.Decimal(12, 2)
+  metadata        Json?
+  convertedPolicyId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  plan         InsurancePlan     @relation(fields: [planId], references: [id])
+  policy       Policy?           @relation(fields: [convertedPolicyId], references: [id])
+  items        InsuranceQuoteItem[]
+
+  @@index([quoteNumber])
+  @@map("insurance_quotes")
+}
+
+model InsuranceQuoteItem {
+  id          String   @id @default(cuid())
+  quoteId     String
+  coverageId  String
+  amount      Decimal  @db.Decimal(12, 2)
+  rate        Decimal? @db.Decimal(10, 6)
+  premium     Decimal  @db.Decimal(12, 2)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  quote InsuranceQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@map("insurance_quote_items")
+}
+
+model Coverage {
+  id          String   @id @default(cuid())
+  planId      String
+  name        String
+  code        String
+  description String?  @db.Text
+  type        String
+  isOptional  Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  plan         InsurancePlan  @relation(fields: [planId], references: [id])
+  limits       CoverageLimit[]
+  deductibles  Deductible[]
+  policyCoverages Policy[] @relation("PolicyCoverages")
+
+  @@unique([planId, code])
+  @@map("coverages")
+}
+
+model CoverageLimit {
+  id          String   @id @default(cuid())
+  coverageId  String
+  name        String
+  amount      Decimal  @db.Decimal(12, 2)
+  period      String?
+  description String?
+  createdAt   DateTime @default(now())
+
+  coverage Coverage @relation(fields: [coverageId], references: [id], onDelete: Cascade)
+
+  @@index([coverageId])
+  @@map("coverage_limits")
+}
+
+model Deductible {
+  id          String   @id @default(cuid())
+  coverageId  String
+  name        String
+  amount      Decimal  @db.Decimal(12, 2)
+  type        String   @default("FIXED")
+  description String?
+  createdAt   DateTime @default(now())
+
+  coverage Coverage @relation(fields: [coverageId], references: [id], onDelete: Cascade)
+
+  @@index([coverageId])
+  @@map("deductibles")
+}
+
+model Premium {
+  id          String       @id @default(cuid())
+  policyId    String
+  amount      Decimal      @db.Decimal(12, 2)
+  currency    String       @default("USD")
+  dueDate     DateTime
+  paidDate    DateTime?
+  status      PaymentStatus @default(PENDING)
+  paymentMethod String?
+  transactionId String?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  policy Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+  @@index([status])
+  @@map("premiums")
+}
+
+model PremiumPayment {
+  id          String   @id @default(cuid())
+  premiumId   String
+  userId      String
+  amount      Decimal  @db.Decimal(12, 2)
+  currency    String   @default("USD")
+  paymentMethod String
+  transactionId String?
+  status      PaymentStatus @default(PENDING)
+  paidAt      DateTime?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  premium Premium @relation(fields: [premiumId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([premiumId])
+  @@map("premium_payments")
+}
+
+model PremiumSchedule {
+  id          String   @id @default(cuid())
+  policyId    String
+  userId      String?
+  frequency   String
+  amount      Decimal  @db.Decimal(12, 2)
+  nextDueDate DateTime
+  isActive    Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  policy Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([policyId])
+  @@map("premium_schedules")
+}
+
+model Insurer {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String   @unique
+  type        String?
+  website     String?
+  phone       String?
+  email       String?
+  address     String?  @db.Text
+  licenseNumber String?
+  rating      String?
+  isActive    Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  policies    Policy[]
+  documents   InsurerDocument[]
+  thirdParties ThirdParty[]
+
+  @@map("insurers")
+}
+
+model InsurerDocument {
+  id           String     @id @default(cuid())
+  insurerId    String
+  documentType DocumentType
+  fileName     String
+  fileUrl      String
+  fileSize     Int?
+  mimeType     String?
+  expiresAt    DateTime?
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+
+  insurer Insurer @relation(fields: [insurerId], references: [id], onDelete: Cascade)
+
+  @@index([insurerId])
+  @@map("insurer_documents")
+}
+
+model ThirdParty {
+  id          String   @id @default(cuid())
+  insurerId   String?
+  name        String
+  type        String
+  contactName String?
+  phone       String?
+  email       String?
+  address     String?  @db.Text
+  taxId       String?
+  isActive    Boolean  @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  insurer         Insurer?         @relation(fields: [insurerId], references: [id])
+  thirdPartyClaims ThirdPartyClaim[]
+
+  @@map("third_parties")
+}
+
+model ThirdPartyClaim {
+  id            String   @id @default(cuid())
+  claimId       String
+  thirdPartyId  String
+  type          String
+  amount        Decimal? @db.Decimal(12, 2)
+  status        String   @default("PENDING")
+  description   String?  @db.Text
+  resolvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  claim      Claim      @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  thirdParty ThirdParty @relation(fields: [thirdPartyId], references: [id])
+
+  @@index([claimId])
+  @@map("third_party_claims")
+}
+
+model LegalCase {
+  id          String   @id @default(cuid())
+  claimId     String
+  caseNumber  String   @unique
+  court       String?
+  judge       String?
+  attorney    String?
+  status      String   @default("OPEN")
+  filedDate   DateTime
+  nextHearing DateTime?
+  notes       String?  @db.Text
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  claim     Claim          @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  documents LegalDocument[]
+
+  @@index([claimId])
+  @@index([caseNumber])
+  @@map("legal_cases")
+}
+
+model LegalDocument {
+  id           String     @id @default(cuid())
+  legalCaseId  String
+  documentType DocumentType
+  fileName     String
+  fileUrl      String
+  fileSize     Int?
+  mimeType     String?
+  filedDate    DateTime?
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+
+  legalCase LegalCase @relation(fields: [legalCaseId], references: [id], onDelete: Cascade)
+
+  @@index([legalCaseId])
+  @@map("legal_documents")
+}
+
+model Communication {
+  id           String             @id @default(cuid())
+  type         CommunicationType
+  subject      String
+  content      String             @db.Text
+  direction    String             @default("OUTBOUND")
+  senderId     String?
+  recipientId  String?
+  recipientEmail String?
+  templateId   String?
+  status       String             @default("SENT")
+  sentAt       DateTime           @default(now())
+  readAt       DateTime?
+  metadata     Json?
+  createdAt    DateTime           @default(now())
+
+  sender   User?                @relation(fields: [senderId], references: [id])
+  template CommunicationTemplate?
+
+  @@index([senderId])
+  @@index([recipientEmail])
+  @@map("communications")
+}
+
+model CommunicationTemplate {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  type        CommunicationType
+  subject     String
+  body        String   @db.Text
+  variables   Json?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  communications Communication[]
+
+  @@map("communication_templates")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String   @db.Text
+  type      String
+  isRead    Boolean  @default(false)
+  readAt    DateTime?
+  actionUrl String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  oldValues Json?
+  newValues Json?
+  ipAddress String?
+  userAgent String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Report {
+  id          String   @id @default(cuid())
+  name        String
+  type        String
+  description String?  @db.Text
+  config      Json
+  result      Json?
+  format      String   @default("JSON")
+  generatedById String?
+  status      String   @default("PENDING")
+  scheduledId String?
+  generatedAt DateTime?
+  expiresAt   DateTime?
+  fileUrl     String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User          @relation(fields: [generatedById], references: [id])
+  schedule ReportSchedule?
+
+  @@index([generatedById])
+  @@index([type])
+  @@map("reports")
+}
+
+model ReportSchedule {
+  id        String   @id @default(cuid())
+  reportId  String   @unique
+  frequency String
+  nextRun   DateTime
+  lastRun   DateTime?
+  isActive  Boolean  @default(true)
+  config    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@map("report_schedules")
+}
+
+model Dashboard {
+  id          String   @id @default(cuid())
+  name        String
+  userId      String
+  isDefault   Boolean  @default(false)
+  layout      Json?
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  widgets DashboardWidget[]
+
+  @@index([userId])
+  @@map("dashboards")
+}
+
+model DashboardWidget {
+  id           String   @id @default(cuid())
+  dashboardId  String
+  type         String
+  title        String
+  config       Json
+  position     Json
+  refreshInterval Int?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId])
+  @@map("dashboard_widgets")
+}
