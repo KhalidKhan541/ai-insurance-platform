@@ -1,0 +1,69 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: insurance-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: insurance_user
+      POSTGRES_PASSWORD: insurance_dev_password
+      POSTGRES_DB: insurance_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U insurance_user -d insurance_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: insurance-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: insurance-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://insurance_user:insurance_dev_password@db:5432/insurance_dev
+      - REDIS_URL=redis://redis:6379
+      - NEXTAUTH_SECRET=dev-secret-change-in-production
+      - NEXTAUTH_URL=http://localhost:3000
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+    command: npm run dev
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: insurance-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  postgres_data:
+  redis_data:
